@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "ebpf_congestion_signals_ebpf",
+    "ebpf_congestion_signals",
+]
+resolver = "2"
+
+[workspace.dependencies]
+aya = { version = "0.12" }
+aya-ebpf = { version = "0.1" }
+
+[profile.release]
+lto = true
+opt-level = 3

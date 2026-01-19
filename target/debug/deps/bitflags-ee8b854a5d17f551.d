@@ -1,0 +1,11 @@
+/home/dell/Desktop/projects/rust_projects/Proton_Q/proton_adaptive_governor/ebpf_congestion_signals/target/debug/deps/bitflags-ee8b854a5d17f551.d: /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/lib.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/iter.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/parser.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/traits.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/public.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/internal.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/external.rs
+
+/home/dell/Desktop/projects/rust_projects/Proton_Q/proton_adaptive_governor/ebpf_congestion_signals/target/debug/deps/libbitflags-ee8b854a5d17f551.rmeta: /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/lib.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/iter.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/parser.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/traits.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/public.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/internal.rs /home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/external.rs
+
+/home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/lib.rs:
+/home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/iter.rs:
+/home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/parser.rs:
+/home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/traits.rs:
+/home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/public.rs:
+/home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/internal.rs:
+/home/dell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bitflags-2.10.0/src/external.rs:

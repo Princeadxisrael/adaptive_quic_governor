@@ -1,0 +1,17 @@
+[package]
+name = "ebpf_congestion_signals"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aya = { workspace = true, features = ["async_tokio"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+env_logger = "0.11"
+log = "0.4"
+plain = "0.2"
+bytes = "1"
+
+[[bin]]
+name = "validate"
+path = "src/bin/validate.rs"
