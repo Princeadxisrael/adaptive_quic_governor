@@ -121,6 +121,7 @@ fn try_tcp_sendmsg(ctx: ProbeContext) -> Result<(), i64> {
     Ok(())
 }
 
+//tracepoint for kfree_skb to track drops
 #[tracepoint]
 pub fn skb_kfree(ctx: TracePointContext) -> u32 {
     match try_skb_kfree(ctx) {
