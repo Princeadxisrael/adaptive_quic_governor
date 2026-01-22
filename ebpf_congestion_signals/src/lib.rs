@@ -24,6 +24,9 @@ pub struct CongestionEvent {
     pub data: EventData,
 }
 
+// SAFETY: CongestionEvent is repr(C) and contains only POD types
+unsafe impl plain::Plain for CongestionEvent {}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union EventData {
@@ -180,7 +183,7 @@ impl CongestionCollector {
             });
         }
 
-        log::info!("Started event collection on {} CPUs", online_cpus()?.count());
+        log::info!("Started event collection on {} CPUs", online_cpus()?.len());
         Ok(())
     }
 
