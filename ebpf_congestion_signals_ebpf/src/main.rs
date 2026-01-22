@@ -18,7 +18,7 @@ use types::*;
 // ============================================================================
 
 #[map]
-static EVENTS: PerfEventArray<CongestionEvent> = PerfEventArray::with_max_entries(1024, 0);
+static EVENTS: PerfEventArray<CongestionEvent> = PerfEventArray::new(0);
 
 #[map]
 static SOFTIRQ_START: PerCpuArray<u64> = PerCpuArray::with_max_entries(10, 0); //per CPU state

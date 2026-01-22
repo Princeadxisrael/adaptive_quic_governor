@@ -4,9 +4,9 @@ use aya::{
     maps::perf::AsyncPerfEventArray,
     programs::{KProbe, TracePoint},
     util::online_cpus,
-    Ebpf,
 };
 use aya::include_bytes_aligned;
+use aya::Bpf;
 use bytes::BytesMut;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -110,7 +110,7 @@ impl Default for AtomicSignals {
 }
 
 pub struct CongestionCollector {
-    ebpf: Ebpf,
+    ebpf: Bpf,
     signals: Arc<AtomicSignals>,
 }
 
@@ -118,12 +118,8 @@ impl CongestionCollector {
     /// Load and attach eBPF probes
     pub fn load() -> anyhow::Result<Self> {
         #[cfg(debug_assertions)]
-        let mut ebpf = Ebpf::load(include_bytes_aligned!(
+        let mut ebpf = Bpf::load(include_bytes_aligned!(
             "../../target/bpfel-unknown-none/debug/congestion_signals"
-        ))?;
-        #[cfg(not(debug_assertions))]
-        let mut ebpf = Ebpf::load(include_bytes_aligned!(
-            "../../target/bpfel-unknown-none/release/congestion_signals"
         ))?;
 
         // Attach kprobes
