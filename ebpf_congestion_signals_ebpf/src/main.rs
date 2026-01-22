@@ -79,7 +79,7 @@ fn try_udp_sendmsg(ctx: ProbeContext) -> Result<(), i64> {
     };
 
     unsafe {
-        EVENTS.output(&ctx, &event, BPF_F_CURRENT_CPU as u64);
+        EVENTS.output(&ctx, &event, (BPF_F_CURRENT_CPU as u64).try_into().unwrap());
     }
 
     Ok(())
@@ -115,7 +115,7 @@ fn try_tcp_sendmsg(ctx: ProbeContext) -> Result<(), i64> {
     };
 
     unsafe {
-        EVENTS.output(&ctx, &event, BPF_F_CURRENT_CPU as u64);
+        EVENTS.output(&ctx, &event, (BPF_F_CURRENT_CPU as u64).try_into().unwrap());
     }
 
     Ok(())
@@ -145,7 +145,7 @@ fn try_skb_kfree(ctx: TracePointContext) -> Result<(), i64> {
     };
 
     unsafe {
-        EVENTS.output(&ctx, &event, BPF_F_CURRENT_CPU as u64);
+        EVENTS.output(&ctx, &event, (BPF_F_CURRENT_CPU as u64).try_into().unwrap());
     }
 
     Ok(())
@@ -195,7 +195,7 @@ fn try_tcp_write_xmit(ctx: ProbeContext) -> Result<(), i64> {
     };
 
     unsafe {
-        EVENTS.output(&ctx, &event, BPF_F_CURRENT_CPU as u64);
+        EVENTS.output(&ctx, &event, (BPF_F_CURRENT_CPU as u64).try_into().unwrap());
     }
 
     Ok(())
@@ -272,12 +272,13 @@ fn try_softirq_exit(ctx: TracePointContext) -> Result<(), i64> {
     };
 
     unsafe {
-        EVENTS.output(&ctx, &event, BPF_F_CURRENT_CPU as u64);
+        EVENTS.output(&ctx, &event, (BPF_F_CURRENT_CPU as u64).try_into().unwrap());
     }
 
     Ok(())
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }

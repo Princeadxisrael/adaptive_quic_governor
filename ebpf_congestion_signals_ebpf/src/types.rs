@@ -51,9 +51,15 @@ pub struct SoftirqData {
 }
 
 // Event type discriminators
+#[allow(dead_code)]
 pub const EVENT_UDP_SEND: u32 = 1;
+#[allow(dead_code)]
 pub const EVENT_TCP_SEND: u32 = 2;
+#[allow(dead_code)]
 pub const EVENT_QDISC_DROP: u32 = 3;
+#[allow(dead_code)]
 pub const EVENT_SOCKET_STATE: u32 = 4;
+#[allow(dead_code)]
 pub const EVENT_SOFTIRQ_ENTER: u32 = 5;
+#[allow(dead_code)]
 pub const EVENT_SOFTIRQ_EXIT: u32 = 6;
