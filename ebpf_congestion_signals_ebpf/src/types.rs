@@ -50,7 +50,8 @@ pub struct SoftirqData {
     pub duration_ns: u64,
 }
 
-// Event type discriminators
+// Event type discriminators. I plan to eliminate these in favor of separate maps
+// per event type, but for now they help keep things simple. 
 #[allow(dead_code)]
 pub const EVENT_UDP_SEND: u32 = 1;
 #[allow(dead_code)]

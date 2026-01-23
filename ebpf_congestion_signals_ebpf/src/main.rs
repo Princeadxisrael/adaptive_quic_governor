@@ -13,22 +13,20 @@ use aya_ebpf::{
 
 use types::*;
 
-// ============================================================================
-// Maps
-// ============================================================================
-
 #[map]
 static EVENTS: PerfEventArray<CongestionEvent> = PerfEventArray::new(0);
 
 #[map]
 static SOFTIRQ_START: PerCpuArray<u64> = PerCpuArray::with_max_entries(10, 0); //per CPU state
 
+//Right now samoling is global per CPU counter. I think it is much reliable to make it per-socket.
+//we just need to figure out a way to identify sockets in kprobes, and have the hash socket pointer to
+//sampling counter.
 #[map]
 static SEND_SAMPLE_STATE: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 
 
 // Helper Functions
-
 #[inline(always)]
 unsafe fn read_kernel<T>(src: *const T) -> Result<T, i64> {
     bpf_probe_read_kernel(src).map_err(|e| e as i64)
@@ -46,8 +44,6 @@ fn should_sample_send() -> bool {
     }
     false
 }
-
-// Probes
 
 #[kprobe]
 pub fn udp_sendmsg(ctx: ProbeContext) -> u32 {

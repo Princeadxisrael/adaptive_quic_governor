@@ -14,7 +14,9 @@ use std::sync::{
 };
 use tokio::task;
 
-// Mirror kernel-side types
+// Mirror kernel-side types. I am defining them here again instead of sharing
+// via a common crate because plain::from_bytes requires the types to implement
+// the Plain trait in the userspace crate.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct CongestionEvent {
@@ -151,7 +153,7 @@ impl CongestionCollector {
         prog.load()?;
         prog.attach("irq", "softirq_exit")?;
 
-        log::info!("eBPF probes loaded and attached successfully");
+        log::info!("eBPF probes loaded and attached");
 
         Ok(Self {
             ebpf,
