@@ -126,7 +126,11 @@ impl CongestionCollector {
         let mut ebpf = Bpf::load(include_bytes_aligned!(
             "../../target/bpfel-unknown-none/debug/congestion_signals"
         ))?;
-
+        
+        #[cfg(not(debug_assertions))]
+        let mut ebpf = Bpf::load(include_bytes_aligned!(
+            "../../target/bpfel-unknown-none/release/congestion_signals"
+        ))?;
         // Attach kprobes
         let prog: &mut KProbe = ebpf.program_mut("udp_sendmsg").unwrap().try_into()?;
         prog.load()?;

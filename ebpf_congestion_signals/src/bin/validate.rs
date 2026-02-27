@@ -1,5 +1,3 @@
-//Validation tool for running tests
-
 use ebpf_congestion_signals::{CongestionCollector, CongestionSignals};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -34,18 +32,11 @@ async fn main() -> anyhow::Result<()> {
 
     let start = Instant::now();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
-    let mut total_signals = CongestionSignals::default();
 
     loop {
         interval.tick().await;
         
         let signals = collector.read_and_reset();
-        
-        // Accumulate totals
-        total_signals.send_bytes += signals.send_bytes;
-        total_signals.drops += signals.drops;
-        total_signals.softirq_ns += signals.softirq_ns;
-        total_signals.event_count += signals.event_count;
 
         // Print interval stats
         println!(
