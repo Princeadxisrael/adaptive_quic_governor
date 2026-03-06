@@ -11,7 +11,12 @@ env_logger = "0.11"
 log = "0.4"
 plain = "0.2"
 bytes = "1"
+libc = "0.2"
 
 [[bin]]
 name = "validate"
 path = "src/bin/validate.rs"
+
+[[bin]]
+name = "diagnose"
+path = "src/bin/diagnose.rs"

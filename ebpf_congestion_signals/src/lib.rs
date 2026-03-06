@@ -1,12 +1,9 @@
 //Define the library for collecting congestion signals/events from eBPF and aggregates them
 
 use aya::{
-    maps::perf::AsyncPerfEventArray,
-    programs::{KProbe, TracePoint},
-    util::online_cpus,
+    Ebpf, maps::perf::AsyncPerfEventArray, programs::{KProbe, TracePoint}, util::online_cpus
 };
 use aya::include_bytes_aligned;
-use aya::Bpf;
 use bytes::BytesMut;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -115,47 +112,61 @@ impl Default for AtomicSignals {
 }
 
 pub struct CongestionCollector {
-    ebpf: Bpf,
+    ebpf: Ebpf,
     signals: Arc<AtomicSignals>,
 }
 
 impl CongestionCollector {
     /// Load and attach eBPF probes
     pub fn load() -> anyhow::Result<Self> {
+        // Load ebpf bytecode
         #[cfg(debug_assertions)]
-        let mut ebpf = Bpf::load(include_bytes_aligned!(
+        let mut ebpf = Ebpf::load(include_bytes_aligned!(
             "../../target/bpfel-unknown-none/debug/congestion_signals"
         ))?;
         
         #[cfg(not(debug_assertions))]
-        let mut ebpf = Bpf::load(include_bytes_aligned!(
+        let mut ebpf = Ebpf::load(include_bytes_aligned!(
             "../../target/bpfel-unknown-none/release/congestion_signals"
         ))?;
+
+        log::info!("eBPF bytecode loaded successfully");
         // Attach kprobes
+        log::info!("eBPF bytecode loaded successfully");
         let prog: &mut KProbe = ebpf.program_mut("udp_sendmsg").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("udp_sendmsg", 0)?;
+        prog.attach("udp_sendmsg", 0).map_err(|e| anyhow::anyhow!("Failed to attach udp_sendmsg kprobe: {}", e))?;
+        log::info!("udp_sendmsg attached");
 
+        log::info!("Attaching kprobe: tcp_sendmsg");
         let prog: &mut KProbe = ebpf.program_mut("tcp_sendmsg").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("tcp_sendmsg", 0)?;
+        prog.attach("tcp_sendmsg", 0).map_err(|e| anyhow::anyhow!("Failed to attach tcp_sendmsg kprobe: {}", e))?;
+        log::info!("tcp_sendmsg attached");
 
-        let prog: &mut KProbe = ebpf.program_mut("tcp_write_xmit").unwrap().try_into()?;
-        prog.load()?;
-        prog.attach("tcp_write_xmit", 0)?;
+         // Skip tcp_write_xmit for now - focus should be on getting basic probes working
+        // let prog: &mut KProbe = ebpf.program_mut("tcp_write_xmit").unwrap().try_into()?;
+        // prog.load()?;
+        // prog.attach("tcp_write_xmit", 0)?;
 
         // Attach tracepoints
+        log::info!("Attaching tracepoint: skb:kfree_skb");
         let prog: &mut TracePoint = ebpf.program_mut("skb_kfree").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("skb", "kfree_skb")?;
+        prog.attach("skb", "kfree_skb").map_err(|e| anyhow::anyhow!("Failed to attach skb:kfree_skb tracepoint: {}", e))?;
+        log::info!("✓ skb:kfree_skb attached");
 
+        log::info!("Attaching tracepoint: irq:softirq_entry");
         let prog: &mut TracePoint = ebpf.program_mut("softirq_entry").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("irq", "softirq_entry")?;
+        prog.attach("irq", "softirq_entry").map_err(|e| anyhow::anyhow!("Failed to attach irq:softirq_entry tracepoint: {}", e))?;
+        log::info!("✓ irq:softirq_entry attached");
 
+        log::info!("Attaching tracepoint: irq:softirq_exit");
         let prog: &mut TracePoint = ebpf.program_mut("softirq_exit").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("irq", "softirq_exit")?;
+        prog.attach("irq", "softirq_exit").map_err(|e| anyhow::anyhow!("Failed to attach irq:softirq_exit tracepoint: {}", e))?;
+        log::info!("✓ irq:softirq_exit attached");;
 
         log::info!("eBPF probes loaded and attached");
 
@@ -169,7 +180,14 @@ impl CongestionCollector {
     pub async fn start_collection(&mut self) -> anyhow::Result<()> {
         let mut perf_array = AsyncPerfEventArray::try_from(self.ebpf.take_map("EVENTS").unwrap())?;
 
-        for cpu_id in online_cpus()? {
+        // Fix for Aya 0.13: Handle the tuple error from online_cpus
+        let cpus: Vec<_> = online_cpus()
+            .map_err(|e| anyhow::anyhow!("Failed to get online CPUs: {:?}", e))?
+            .into_iter().collect();
+        
+        log::info!("Starting event collection on {} CPUs", cpus.len());
+
+        for cpu_id in cpus {
             let mut buf = perf_array.open(cpu_id, None)?;
             let signals = self.signals.clone();
 
@@ -177,21 +195,28 @@ impl CongestionCollector {
                 let mut buffers = vec![BytesMut::with_capacity(4096); 10];
 
                 loop {
-                    let events = buf.read_events(&mut buffers).await.unwrap();
-                    for buf in buffers.iter_mut().take(events.read) {
-                        let event = unsafe {
-                            plain::from_bytes::<CongestionEvent>(buf.as_ref()).unwrap()
-                        };
+                    match buf.read_events(&mut buffers).await {
+                        Ok(events) => {
+                            for buf in buffers.iter_mut().take(events.read) {
+                                let event = unsafe {
+                                    plain::from_bytes::<CongestionEvent>(buf.as_ref()).unwrap()
+                                };
 
-                        Self::process_event(&signals, event);
+                                Self::process_event(&signals, event);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Error reading events from CPU {}: {}", cpu_id, e);
+                        }
                     }
                 }
             });
         }
 
-        log::info!("Started event collection on {} CPUs", online_cpus()?.len());
+        log::info!("Event collection started on all CPUs");
         Ok(())
     }
+
 
     fn process_event(signals: &AtomicSignals, event: &CongestionEvent) {
         signals.event_count.fetch_add(1, Ordering::Relaxed);

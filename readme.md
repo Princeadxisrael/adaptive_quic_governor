@@ -1,6 +1,6 @@
 # eBPF Congestion Signals
 
-Kernel-space network telemetry for congestion-aware QUIC governor.
+Kernel-space network telemetry for congestion-aware QUIC governor. 
 
 ## Project Structure
 
