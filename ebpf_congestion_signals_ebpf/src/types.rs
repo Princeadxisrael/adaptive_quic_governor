@@ -1,4 +1,5 @@
 //Shared types between kernel and userspace
+#![no_std]
 
 /// Event sent to userspace via ring buffer
 #[repr(C)]
@@ -52,15 +53,11 @@ pub struct SoftirqData {
 
 // Event type discriminators. I plan to eliminate these in favor of separate maps
 // per event type, but for now they help keep things simple. 
-#[allow(dead_code)]
+
 pub const EVENT_UDP_SEND: u32 = 1;
-#[allow(dead_code)]
-pub const EVENT_TCP_SEND: u32 = 2;
-#[allow(dead_code)]
+pub const EVENT_TCP_SEND: u32 = 2;   //deprecated: only keeping for compatibility here
 pub const EVENT_QDISC_DROP: u32 = 3;
-#[allow(dead_code)]
-pub const EVENT_SOCKET_STATE: u32 = 4;
-#[allow(dead_code)]
+pub const EVENT_SOCKET_STATE: u32 = 4;  //deprecated: decided to removw tcp_write_xmit as it is useless for our case
 pub const EVENT_SOFTIRQ_ENTER: u32 = 5;
-#[allow(dead_code)]
 pub const EVENT_SOFTIRQ_EXIT: u32 = 6;
+pub const EVENT_NET_DEV_QUEUE: u32 = 7; 

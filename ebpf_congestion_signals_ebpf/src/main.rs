@@ -5,7 +5,7 @@ mod types;
 
 use aya_ebpf::{
     bindings::BPF_F_CURRENT_CPU,
-    helpers::{bpf_get_smp_processor_id, bpf_ktime_get_ns, bpf_probe_read_kernel},
+    helpers::{bpf_get_smp_processor_id, bpf_ktime_get_ns},
     macros::{kprobe, map, tracepoint},
     maps::{PerCpuArray, PerfEventArray},
     programs::{ProbeContext, TracePointContext},
@@ -13,28 +13,24 @@ use aya_ebpf::{
 
 use types::*;
 
+// Maps
 #[map]
 static EVENTS: PerfEventArray<CongestionEvent> = PerfEventArray::new(0);
 
 #[map]
-static SOFTIRQ_START: PerCpuArray<u64> = PerCpuArray::with_max_entries(10, 0); //per CPU state
+static SOFTIRQ_START: PerCpuArray<u64> = PerCpuArray::with_max_entries(10, 0);
 
-//Right now samoling is global per CPU counter. I think it is much reliable to make it per-socket.
-//we just need to figure out a way to identify sockets in kprobes, and have the hash socket pointer to
-//sampling counter.
+/// Per-CPU sampling state for send operations
+/// Note: Could be made per-socket by hashing socket pointer, but per-CPU is simpler
 #[map]
 static SEND_SAMPLE_STATE: PerCpuArray<u64> = PerCpuArray::with_max_entries(1, 0);
 
 
 // Helper Functions
 #[inline(always)]
-unsafe fn read_kernel<T>(src: *const T) -> Result<T, i64> {
-    bpf_probe_read_kernel(src).map_err(|e| e as i64)
-}
-
-#[inline(always)]
 fn should_sample_send() -> bool {
     // Sample every 100th send to reduce overhead
+    // Adjust this ratio based on observed CPU overhead
     unsafe {
         if let Some(counter) = SEND_SAMPLE_STATE.get_ptr_mut(0) {
             let count = counter.read();
@@ -45,6 +41,8 @@ fn should_sample_send() -> bool {
     false
 }
 
+// QUIC-Relevant Probes
+/// Probe UDP sends - CRITICAL for QUIC (which runs over UDP)
 #[kprobe]
 pub fn udp_sendmsg(ctx: ProbeContext) -> u32 {
     match try_udp_sendmsg(ctx) {
@@ -81,43 +79,7 @@ fn try_udp_sendmsg(ctx: ProbeContext) -> Result<(), i64> {
     Ok(())
 }
 
-#[kprobe]
-pub fn tcp_sendmsg(ctx: ProbeContext) -> u32 {
-    match try_tcp_sendmsg(ctx) {
-        Ok(()) => 0,
-        Err(_) => 1,
-    }
-}
-
-fn try_tcp_sendmsg(ctx: ProbeContext) -> Result<(), i64> {
-    if !should_sample_send() {
-        return Ok(());
-    }
-
-    let sk: *const core::ffi::c_void = unsafe { ctx.arg(0).ok_or(1i64)? };
-    let len: usize = unsafe { ctx.arg(2).ok_or(1i64)? };
-
-    let event = CongestionEvent {
-        timestamp_ns: unsafe { bpf_ktime_get_ns() },
-        event_type: EVENT_TCP_SEND,
-        cpu_id: unsafe { bpf_get_smp_processor_id() },
-        data: EventData {
-            sendmsg: SendMsgData {
-                bytes: len as u64,
-                is_tcp: 1,
-                socket_id: sk as u64,
-            },
-        },
-    };
-
-    unsafe {
-        EVENTS.output(&ctx, &event, (BPF_F_CURRENT_CPU as u64).try_into().unwrap());
-    }
-
-    Ok(())
-}
-
-//tracepoint for kfree_skb to track drops
+/// Tracepoint for packet drops - detects network congestion
 #[tracepoint]
 pub fn skb_kfree(ctx: TracePointContext) -> u32 {
     match try_skb_kfree(ctx) {
@@ -127,6 +89,9 @@ pub fn skb_kfree(ctx: TracePointContext) -> u32 {
 }
 
 fn try_skb_kfree(ctx: TracePointContext) -> Result<(), i64> {
+    // TODO: Could read drop reason from args->reason to distinguish qdisc drops
+    // from other types of drops (e.g., invalid packets, routing failures)
+    
     let event = CongestionEvent {
         timestamp_ns: unsafe { bpf_ktime_get_ns() },
         event_type: EVENT_QDISC_DROP,
@@ -147,45 +112,37 @@ fn try_skb_kfree(ctx: TracePointContext) -> Result<(), i64> {
     Ok(())
 }
 
-#[kprobe]
-pub fn tcp_write_xmit(ctx: ProbeContext) -> u32 {
-    match try_tcp_write_xmit(ctx) {
+/// Tracepoint for qdisc queue events - leading indicator of congestion
+/// This replaces the complex tcp_write_xmit approach for qdisc visibility
+#[tracepoint]
+pub fn net_dev_queue(ctx: TracePointContext) -> u32 {
+    match try_net_dev_queue(ctx) {
         Ok(()) => 0,
         Err(_) => 1,
     }
 }
 
-fn try_tcp_write_xmit(ctx: ProbeContext) -> Result<(), i64> {
-    if !should_sample_send() {
-        return Ok(());
-    }
-
-    let sk: *const u8 = unsafe { ctx.arg(0).ok_or(1i64)? };
-
-    // WARNING: These offsets are kernel version dependent!
-    // Use BTF/CO-RE in production for portability
-    const SK_WMEM_QUEUED_OFFSET: usize = 0x88;
-    const SK_SNDBUF_OFFSET: usize = 0x8C;
+fn try_net_dev_queue(ctx: TracePointContext) -> Result<(), i64> {
+    // Tracepoint format (from /sys/kernel/debug/tracing/events/net/net_dev_queue/format):
+    // field:void * skbaddr;
+    // field:unsigned int len;
+    // field:__data_loc char[] name;
     
-    let wmem_queued = unsafe {
-        let wmem_ptr = sk.add(SK_WMEM_QUEUED_OFFSET) as *const i32;
-        read_kernel(wmem_ptr).unwrap_or(0)
-    };
+    // Read packet length (offset may vary - typically at offset 16 or 24)
+    let len = unsafe { ctx.read_at::<u32>(16).unwrap_or(0) };
     
-    let sndbuf = unsafe {
-        let sndbuf_ptr = sk.add(SK_SNDBUF_OFFSET) as *const i32;
-        read_kernel(sndbuf_ptr).unwrap_or(0)
-    };
-
+    // We can sample this too if it generates too many events
+    // For now, capture all queue events since they're already relatively infrequent
+    
     let event = CongestionEvent {
         timestamp_ns: unsafe { bpf_ktime_get_ns() },
-        event_type: EVENT_SOCKET_STATE,
+        event_type: EVENT_NET_DEV_QUEUE,
         cpu_id: unsafe { bpf_get_smp_processor_id() },
         data: EventData {
-            socket: SocketData {
-                wmem_queued: wmem_queued as u32,
-                sndbuf: sndbuf as u32,
-                socket_id: sk as u64,
+            qdisc: QdiscData {
+                dropped: 0,
+                backlog_bytes: len,
+                backlog_packets: 1,
             },
         },
     };
@@ -197,6 +154,7 @@ fn try_tcp_write_xmit(ctx: ProbeContext) -> Result<(), i64> {
     Ok(())
 }
 
+/// Tracepoint for softirq entry - track when network interrupts start
 #[tracepoint]
 pub fn softirq_entry(ctx: TracePointContext) -> u32 {
     match try_softirq_entry(ctx) {
@@ -224,6 +182,7 @@ fn try_softirq_entry(ctx: TracePointContext) -> Result<(), i64> {
     Ok(())
 }
 
+/// Tracepoint for softirq exit - calculate duration and send event
 #[tracepoint]
 pub fn softirq_exit(ctx: TracePointContext) -> u32 {
     match try_softirq_exit(ctx) {
@@ -273,6 +232,10 @@ fn try_softirq_exit(ctx: TracePointContext) -> Result<(), i64> {
 
     Ok(())
 }
+
+
+// tcp_sendmsg - REMOVED: QUIC uses UDP, not TCP
+// tcp_write_xmit - REMOVED: TCP-specific socket buffer tracking, not useful for QUIC
 
 #[cfg(not(test))]
 #[panic_handler]

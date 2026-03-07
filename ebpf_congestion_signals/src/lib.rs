@@ -76,7 +76,9 @@ pub const EVENT_UDP_SEND: u32 = 1;
 pub const EVENT_TCP_SEND: u32 = 2;
 pub const EVENT_QDISC_DROP: u32 = 3;
 pub const EVENT_SOCKET_STATE: u32 = 4;
+pub const EVENT_SOFTIRQ_ENTER: u32 = 5;
 pub const EVENT_SOFTIRQ_EXIT: u32 = 6;
+pub const EVENT_NET_DEV_QUEUE: u32 = 7;
 
 /// Aggregated statistics from eBPF probes
 #[derive(Debug, Clone, Default)]
@@ -86,6 +88,9 @@ pub struct CongestionSignals {
     pub avg_wmem_pressure: f64,
     pub softirq_ns: u64,
     pub event_count: u64,
+    pub queue_depth_packets: u64,
+    pub queue_depth_bytes: u64,
+
 }
 
 /// Thread-safe atomic storage for signals
@@ -96,6 +101,8 @@ struct AtomicSignals {
     wmem_total: AtomicU64,
     softirq_ns: AtomicU64,
     event_count: AtomicU64,
+    queue_depth_packets:AtomicU64,
+    queue_depth_bytes: AtomicU64
 }
 
 impl Default for AtomicSignals {
@@ -107,6 +114,8 @@ impl Default for AtomicSignals {
             wmem_total: AtomicU64::new(0),
             softirq_ns: AtomicU64::new(0),
             event_count: AtomicU64::new(0),
+            queue_depth_packets:AtomicU64::new(0),
+            queue_depth_bytes: AtomicU64::new(0)
         }
     }
 }
@@ -119,7 +128,7 @@ pub struct CongestionCollector {
 impl CongestionCollector {
     /// Load and attach eBPF probes
     pub fn load() -> anyhow::Result<Self> {
-        // Load ebpf bytecode
+        // Load ebpf bytecode...just ignore the red, loads when the program compiles
         #[cfg(debug_assertions)]
         let mut ebpf = Ebpf::load(include_bytes_aligned!(
             "../../target/bpfel-unknown-none/debug/congestion_signals"
@@ -135,14 +144,9 @@ impl CongestionCollector {
         log::info!("eBPF bytecode loaded successfully");
         let prog: &mut KProbe = ebpf.program_mut("udp_sendmsg").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("udp_sendmsg", 0).map_err(|e| anyhow::anyhow!("Failed to attach udp_sendmsg kprobe: {}", e))?;
+        prog.attach("udp_sendmsg", 0)?;
         log::info!("udp_sendmsg attached");
 
-        log::info!("Attaching kprobe: tcp_sendmsg");
-        let prog: &mut KProbe = ebpf.program_mut("tcp_sendmsg").unwrap().try_into()?;
-        prog.load()?;
-        prog.attach("tcp_sendmsg", 0).map_err(|e| anyhow::anyhow!("Failed to attach tcp_sendmsg kprobe: {}", e))?;
-        log::info!("tcp_sendmsg attached");
 
          // Skip tcp_write_xmit for now - focus should be on getting basic probes working
         // let prog: &mut KProbe = ebpf.program_mut("tcp_write_xmit").unwrap().try_into()?;
@@ -154,21 +158,28 @@ impl CongestionCollector {
         let prog: &mut TracePoint = ebpf.program_mut("skb_kfree").unwrap().try_into()?;
         prog.load()?;
         prog.attach("skb", "kfree_skb").map_err(|e| anyhow::anyhow!("Failed to attach skb:kfree_skb tracepoint: {}", e))?;
-        log::info!("✓ skb:kfree_skb attached");
+        log::info!("skb:kfree_skb attached");
+
+        log::info!("Attaching tracepoint: net:net_dev_queue");
+        let prog: &mut TracePoint = ebpf.program_mut("net_dev_queue").unwrap().try_into()?;
+        prog.load()?;
+        prog.attach("net", "net_dev_queue")?;
+        log::info!("net:net_dev_queue tracepoint attached");
+
 
         log::info!("Attaching tracepoint: irq:softirq_entry");
         let prog: &mut TracePoint = ebpf.program_mut("softirq_entry").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("irq", "softirq_entry").map_err(|e| anyhow::anyhow!("Failed to attach irq:softirq_entry tracepoint: {}", e))?;
-        log::info!("✓ irq:softirq_entry attached");
-
+        prog.attach("irq", "softirq_entry")?;
         log::info!("Attaching tracepoint: irq:softirq_exit");
         let prog: &mut TracePoint = ebpf.program_mut("softirq_exit").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("irq", "softirq_exit").map_err(|e| anyhow::anyhow!("Failed to attach irq:softirq_exit tracepoint: {}", e))?;
-        log::info!("✓ irq:softirq_exit attached");;
-
+        prog.attach("irq", "softirq_exit")?;
         log::info!("eBPF probes loaded and attached");
+
+        // Verify kprobes are in kernel
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        Self::verify_kprobes_attached()?;
 
         Ok(Self {
             ebpf,
@@ -176,14 +187,30 @@ impl CongestionCollector {
         })
     }
 
+    fn verify_kprobes_attached() -> anyhow::Result<()> {
+        use std::fs;
+        
+        let kprobe_events = fs::read_to_string("/sys/kernel/debug/tracing/kprobe_events")
+            .unwrap_or_default();
+        
+        log::info!("Verifying kprobe attachment...");
+        log::info!("kprobe_events content:\n{}", kprobe_events);
+        
+        if kprobe_events.contains("udp_sendmsg") {
+            log::info!("udp_sendmsg found in kprobe_events");
+        } else {
+            log::warn!("udp_sendmsg NOT found in kprobe_events");
+        }
+        
+        Ok(())
+    }
     /// Start collecting events in background tasks
     pub async fn start_collection(&mut self) -> anyhow::Result<()> {
         let mut perf_array = AsyncPerfEventArray::try_from(self.ebpf.take_map("EVENTS").unwrap())?;
 
-        // Fix for Aya 0.13: Handle the tuple error from online_cpus
-        let cpus: Vec<_> = online_cpus()
-            .map_err(|e| anyhow::anyhow!("Failed to get online CPUs: {:?}", e))?
-            .into_iter().collect();
+        // fixed online_cpus() should return Vec<32>
+        let cpus= online_cpus()
+            .map_err(|e| anyhow::anyhow!("Failed to get online CPUs: {:?}", e))?;
         
         log::info!("Starting event collection on {} CPUs", cpus.len());
 
@@ -229,7 +256,14 @@ impl CongestionCollector {
             EVENT_QDISC_DROP => {
                 signals.drops.fetch_add(1, Ordering::Relaxed);
             }
+            EVENT_NET_DEV_QUEUE => unsafe {
+                // NEW: Track queue depth
+                let qdata = event.data.qdisc;
+                signals.queue_depth_packets.fetch_add(qdata.backlog_packets as u64, Ordering::Relaxed);
+                signals.queue_depth_bytes.fetch_add(qdata.backlog_bytes as u64, Ordering::Relaxed);
+            },
             EVENT_SOCKET_STATE => unsafe {
+                //mind ya: this is deprecated, just here for compactability
                 let wmem = event.data.socket.wmem_queued;
                 let sndbuf = event.data.socket.sndbuf;
                 if sndbuf > 0 {
@@ -254,6 +288,8 @@ impl CongestionCollector {
         let wmem_samples = self.signals.wmem_samples.swap(0, Ordering::Relaxed);
         let softirq_ns = self.signals.softirq_ns.swap(0, Ordering::Relaxed);
         let event_count = self.signals.event_count.swap(0, Ordering::Relaxed);
+        let queue_depth_packets = self.signals.queue_depth_packets.swap(0, Ordering::Relaxed);
+        let queue_depth_bytes = self.signals.queue_depth_bytes.swap(0, Ordering::Relaxed);
 
         let avg_wmem_pressure = if wmem_samples > 0 {
             (wmem_total as f64) / (wmem_samples as f64) / 1000.0
@@ -267,6 +303,10 @@ impl CongestionCollector {
             avg_wmem_pressure,
             softirq_ns,
             event_count,
+            queue_depth_packets,
+            queue_depth_bytes,
+            
+
         }
     }
 }

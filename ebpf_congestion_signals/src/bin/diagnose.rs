@@ -7,7 +7,7 @@ use std::fs;
 fn main() {
     println!("=== eBPF Probe Diagnostic Tool ===\n");
     
-    // 1. Check kernel version
+    // Check kernel version
     println!("1. Checking kernel version...");
     let output = Command::new("uname")
         .arg("-r")
@@ -16,13 +16,13 @@ fn main() {
     let kernel = String::from_utf8_lossy(&output.stdout);
     println!("   Kernel: {}", kernel.trim());
     
-    // 2. Check if debugfs is mounted
+    // Check if debugfs is mounted
     println!("\n2. Checking debugfs mount...");
     let mounts = fs::read_to_string("/proc/mounts").unwrap_or_default();
     if mounts.contains("debugfs") {
         println!("   ✓ debugfs is mounted");
         
-        // Find the mount point
+        // Find mount point
         for line in mounts.lines() {
             if line.contains("debugfs") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
@@ -37,7 +37,7 @@ fn main() {
         return;
     }
     
-    // 3. Check if we can read tracing directory
+    //maybe we can read tracing directory
     println!("\n3. Checking tracing access...");
     match fs::read_dir("/sys/kernel/debug/tracing") {
         Ok(_) => println!("   ✓ Can access /sys/kernel/debug/tracing"),
@@ -79,7 +79,7 @@ fn main() {
     check_tracepoint("irq", "softirq_exit");
     
     // 6. Check if bpftool is available
-    println!("\n6. Checking bpftool...");
+    println!("Checking bpftool...");
     match Command::new("bpftool").arg("version").output() {
         Ok(output) => {
             let version = String::from_utf8_lossy(&output.stdout);
@@ -92,7 +92,7 @@ fn main() {
     }
     
     // 7. Try manual kprobe creation
-    println!("\n7. Testing manual kprobe creation...");
+    println!("Testing manual kprobe creation...");
     println!("   Creating test kprobe for udp_sendmsg...");
     
     // Clear any existing probe
@@ -108,17 +108,17 @@ fn main() {
                 .unwrap_or_default();
             
             if events.contains("testprobe_udp") {
-                println!("   ✓ Test kprobe visible in kprobe_events");
+                println!("   Test kprobe visible in kprobe_events");
             } else {
-                println!("   ✗ Test kprobe NOT visible in kprobe_events");
+                println!("   Test kprobe NOT visible in kprobe_events");
             }
             
             // Clean up
             let _ = fs::write("/sys/kernel/debug/tracing/kprobe_events", "-:testprobe_udp\n");
-            println!("   ✓ Cleaned up test kprobe");
+            println!("   Cleaned up test kprobe");
         }
         Err(e) => {
-            println!("   ✗ Failed to create test kprobe: {}", e);
+            println!("   Failed to create test kprobe: {}", e);
             println!("   This might indicate a permissions or kernel issue");
         }
     }
@@ -142,12 +142,5 @@ fn main() {
         }
     }
     
-    // 9. Summary
-    println!("\n=== Summary ===");
-    println!("Kernel version: {}", kernel.trim());
-    println!("\nIf kernel is 6.x, Aya might have compatibility issues.");
-    println!("Consider:");
-    println!("  1. Downgrading to kernel 5.15 LTS");
-    println!("  2. Using bpftrace for testing instead");
-    println!("  3. Waiting for Aya to support kernel 6.17+");
+    
 }

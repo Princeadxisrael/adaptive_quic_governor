@@ -32,20 +32,30 @@ async fn main() -> anyhow::Result<()> {
 
     let start = Instant::now();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut total_signals = CongestionSignals::default();
 
     loop {
         interval.tick().await;
         
         let signals = collector.read_and_reset();
+        
+        // Accumulate totals
+        total_signals.send_bytes += signals.send_bytes;
+        total_signals.drops += signals.drops;
+        total_signals.softirq_ns += signals.softirq_ns;
+        total_signals.event_count += signals.event_count;
+        total_signals.queue_depth_packets += signals.queue_depth_packets;
+        total_signals.queue_depth_bytes += signals.queue_depth_bytes;
 
-        // Print interval stats
+        // Print interval stats with NEW queue metrics
         println!(
-            "[{:>3}s] Events: {:>6} | Send: {:>8} MB | Drops: {:>4} | Wmem: {:.1}% | Softirq: {:>6} µs",
+            "[{:>3}s] Events: {:>6} | Send: {:>8} MB | Drops: {:>4} | Queue: {:>4}pkts/{:>6}KB | Softirq: {:>6} µs",
             start.elapsed().as_secs(),
             signals.event_count,
             signals.send_bytes / 1_000_000,
             signals.drops,
-            signals.avg_wmem_pressure * 100.0,
+            signals.queue_depth_packets,
+            signals.queue_depth_bytes / 1024,
             signals.softirq_ns / 1000,
         );
 
@@ -56,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
             println!("  → CPU overhead: {:.2}% (target: <2.0%)", overhead);
             
             if overhead > 2.0 {
-                println!("  ⚠ WARNING: CPU overhead exceeds 2% threshold!");
+                println!("  WARNING: CPU overhead exceeds 2% threshold!");
             }
         }
     }
