@@ -97,6 +97,7 @@ pub struct CongestionSignals {
 }
 
 /// Thread-safe atomic storage for signals
+#[derive(Default)]
 struct AtomicSignals {
     send_bytes: AtomicU64,
     drops: AtomicU64,
@@ -106,21 +107,6 @@ struct AtomicSignals {
     event_count: AtomicU64,
     queue_depth_packets: AtomicU64,
     queue_depth_bytes: AtomicU64,
-}
-
-impl Default for AtomicSignals {
-    fn default() -> Self {
-        Self {
-            send_bytes: AtomicU64::new(0),
-            drops: AtomicU64::new(0),
-            wmem_samples: AtomicU64::new(0),
-            wmem_total: AtomicU64::new(0),
-            softirq_ns: AtomicU64::new(0),
-            event_count: AtomicU64::new(0),
-            queue_depth_packets: AtomicU64::new(0),
-            queue_depth_bytes: AtomicU64::new(0),
-        }
-    }
 }
 
 pub struct CongestionCollector {
