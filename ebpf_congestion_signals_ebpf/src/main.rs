@@ -164,7 +164,13 @@ pub fn softirq_entry(ctx: TracePointContext) -> u32 {
 }
 
 fn try_softirq_entry(ctx: TracePointContext) -> Result<(), i64> {
-    let vec = unsafe { ctx.read_at::<u32>(16).map_err(|_| 1i64)? };
+    // `vec` is typically at offset 8 after tracepoint common fields.
+    // Keep a fallback at 16 for kernel/layout variance.
+    let vec = unsafe {
+        ctx.read_at::<u32>(8)
+            .or_else(|_| ctx.read_at::<u32>(16))
+            .unwrap_or(u32::MAX)
+    };
     
     // Only track NET_TX_SOFTIRQ (2) and NET_RX_SOFTIRQ (3)
     if vec != 2 && vec != 3 {
@@ -192,7 +198,13 @@ pub fn softirq_exit(ctx: TracePointContext) -> u32 {
 }
 
 fn try_softirq_exit(ctx: TracePointContext) -> Result<(), i64> {
-    let vec = unsafe { ctx.read_at::<u32>(16).map_err(|_| 1i64)? };
+    // `vec` is typically at offset 8 after tracepoint common fields.
+    // Keep a fallback at 16 for kernel/layout variance.
+    let vec = unsafe {
+        ctx.read_at::<u32>(8)
+            .or_else(|_| ctx.read_at::<u32>(16))
+            .unwrap_or(u32::MAX)
+    };
     
     if vec != 2 && vec != 3 {
         return Ok(());

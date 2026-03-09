@@ -1,10 +1,14 @@
 //Define the library for collecting congestion signals/events from eBPF and aggregates them
 
-use aya::{
-    Ebpf, maps::perf::AsyncPerfEventArray, programs::{KProbe, TracePoint}, util::online_cpus
-};
 use aya::include_bytes_aligned;
+use aya::{
+    maps::perf::AsyncPerfEventArray,
+    programs::{KProbe, TracePoint},
+    util::online_cpus,
+    Ebpf,
+};
 use bytes::BytesMut;
+use std::mem::size_of;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -24,7 +28,7 @@ pub struct CongestionEvent {
 }
 
 // SAFETY: CongestionEvent is repr(C) and contains only POD types
-unsafe impl plain::Plain for CongestionEvent {}
+// unsafe impl plain::Plain for CongestionEvent {}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -90,7 +94,6 @@ pub struct CongestionSignals {
     pub event_count: u64,
     pub queue_depth_packets: u64,
     pub queue_depth_bytes: u64,
-
 }
 
 /// Thread-safe atomic storage for signals
@@ -101,8 +104,8 @@ struct AtomicSignals {
     wmem_total: AtomicU64,
     softirq_ns: AtomicU64,
     event_count: AtomicU64,
-    queue_depth_packets:AtomicU64,
-    queue_depth_bytes: AtomicU64
+    queue_depth_packets: AtomicU64,
+    queue_depth_bytes: AtomicU64,
 }
 
 impl Default for AtomicSignals {
@@ -114,8 +117,8 @@ impl Default for AtomicSignals {
             wmem_total: AtomicU64::new(0),
             softirq_ns: AtomicU64::new(0),
             event_count: AtomicU64::new(0),
-            queue_depth_packets:AtomicU64::new(0),
-            queue_depth_bytes: AtomicU64::new(0)
+            queue_depth_packets: AtomicU64::new(0),
+            queue_depth_bytes: AtomicU64::new(0),
         }
     }
 }
@@ -133,7 +136,7 @@ impl CongestionCollector {
         let mut ebpf = Ebpf::load(include_bytes_aligned!(
             "../../target/bpfel-unknown-none/debug/congestion_signals"
         ))?;
-        
+
         #[cfg(not(debug_assertions))]
         let mut ebpf = Ebpf::load(include_bytes_aligned!(
             "../../target/bpfel-unknown-none/release/congestion_signals"
@@ -141,14 +144,13 @@ impl CongestionCollector {
 
         log::info!("eBPF bytecode loaded successfully");
         // Attach kprobes
-        log::info!("eBPF bytecode loaded successfully");
+        log::info!("attaching kprobe:udp_sendmsg");
         let prog: &mut KProbe = ebpf.program_mut("udp_sendmsg").unwrap().try_into()?;
         prog.load()?;
         prog.attach("udp_sendmsg", 0)?;
         log::info!("udp_sendmsg attached");
 
-
-         // Skip tcp_write_xmit for now - focus should be on getting basic probes working
+        // Skip tcp_write_xmit for now - focus should be on getting basic probes working
         // let prog: &mut KProbe = ebpf.program_mut("tcp_write_xmit").unwrap().try_into()?;
         // prog.load()?;
         // prog.attach("tcp_write_xmit", 0)?;
@@ -157,7 +159,7 @@ impl CongestionCollector {
         log::info!("Attaching tracepoint: skb:kfree_skb");
         let prog: &mut TracePoint = ebpf.program_mut("skb_kfree").unwrap().try_into()?;
         prog.load()?;
-        prog.attach("skb", "kfree_skb").map_err(|e| anyhow::anyhow!("Failed to attach skb:kfree_skb tracepoint: {}", e))?;
+        prog.attach("skb", "kfree_skb")?;
         log::info!("skb:kfree_skb attached");
 
         log::info!("Attaching tracepoint: net:net_dev_queue");
@@ -166,11 +168,11 @@ impl CongestionCollector {
         prog.attach("net", "net_dev_queue")?;
         log::info!("net:net_dev_queue tracepoint attached");
 
-
         log::info!("Attaching tracepoint: irq:softirq_entry");
         let prog: &mut TracePoint = ebpf.program_mut("softirq_entry").unwrap().try_into()?;
         prog.load()?;
         prog.attach("irq", "softirq_entry")?;
+        
         log::info!("Attaching tracepoint: irq:softirq_exit");
         let prog: &mut TracePoint = ebpf.program_mut("softirq_exit").unwrap().try_into()?;
         prog.load()?;
@@ -189,19 +191,19 @@ impl CongestionCollector {
 
     fn verify_kprobes_attached() -> anyhow::Result<()> {
         use std::fs;
-        
-        let kprobe_events = fs::read_to_string("/sys/kernel/debug/tracing/kprobe_events")
-            .unwrap_or_default();
-        
+
+        let kprobe_events =
+            fs::read_to_string("/sys/kernel/debug/tracing/kprobe_events").unwrap_or_default();
+
         log::info!("Verifying kprobe attachment...");
         log::info!("kprobe_events content:\n{}", kprobe_events);
-        
+
         if kprobe_events.contains("udp_sendmsg") {
             log::info!("udp_sendmsg found in kprobe_events");
         } else {
             log::warn!("udp_sendmsg NOT found in kprobe_events");
         }
-        
+
         Ok(())
     }
     /// Start collecting events in background tasks
@@ -209,9 +211,9 @@ impl CongestionCollector {
         let mut perf_array = AsyncPerfEventArray::try_from(self.ebpf.take_map("EVENTS").unwrap())?;
 
         // fixed online_cpus() should return Vec<32>
-        let cpus= online_cpus()
-            .map_err(|e| anyhow::anyhow!("Failed to get online CPUs: {:?}", e))?;
-        
+        let cpus =
+            online_cpus().map_err(|e| anyhow::anyhow!("Failed to get online CPUs: {:?}", e))?;
+
         log::info!("Starting event collection on {} CPUs", cpus.len());
 
         for cpu_id in cpus {
@@ -222,14 +224,33 @@ impl CongestionCollector {
                 let mut buffers = vec![BytesMut::with_capacity(4096); 10];
 
                 loop {
+                    for buf in &mut buffers {
+                        buf.clear();
+                    }
+
                     match buf.read_events(&mut buffers).await {
                         Ok(events) => {
+                            if events.lost > 0 {
+                                log::warn!("Lost {} perf events on CPU {}", events.lost, cpu_id);
+                            }
+
                             for buf in buffers.iter_mut().take(events.read) {
+                                if buf.len() < size_of::<CongestionEvent>() {
+                                    log::warn!(
+                                        "Short perf sample on CPU {}: {} bytes (expected at least {})",
+                                        cpu_id,
+                                        buf.len(),
+                                        size_of::<CongestionEvent>()
+                                    );
+                                    continue;
+                                }
+
                                 let event = unsafe {
-                                    plain::from_bytes::<CongestionEvent>(buf.as_ref()).unwrap()
+                                    // Perf buffers don't guarantee alignment; copy unaligned.
+                                    std::ptr::read_unaligned(buf.as_ptr() as *const CongestionEvent)
                                 };
 
-                                Self::process_event(&signals, event);
+                                Self::process_event(&signals, &event);
                             }
                         }
                         Err(e) => {
@@ -243,7 +264,6 @@ impl CongestionCollector {
         log::info!("Event collection started on all CPUs");
         Ok(())
     }
-
 
     fn process_event(signals: &AtomicSignals, event: &CongestionEvent) {
         signals.event_count.fetch_add(1, Ordering::Relaxed);
@@ -259,8 +279,12 @@ impl CongestionCollector {
             EVENT_NET_DEV_QUEUE => unsafe {
                 // NEW: Track queue depth
                 let qdata = event.data.qdisc;
-                signals.queue_depth_packets.fetch_add(qdata.backlog_packets as u64, Ordering::Relaxed);
-                signals.queue_depth_bytes.fetch_add(qdata.backlog_bytes as u64, Ordering::Relaxed);
+                signals
+                    .queue_depth_packets
+                    .fetch_add(qdata.backlog_packets as u64, Ordering::Relaxed);
+                signals
+                    .queue_depth_bytes
+                    .fetch_add(qdata.backlog_bytes as u64, Ordering::Relaxed);
             },
             EVENT_SOCKET_STATE => unsafe {
                 //mind ya: this is deprecated, just here for compactability
@@ -305,8 +329,6 @@ impl CongestionCollector {
             event_count,
             queue_depth_packets,
             queue_depth_bytes,
-            
-
         }
     }
 }
