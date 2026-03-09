@@ -17,10 +17,10 @@ fn main() {
     println!("   Kernel: {}", kernel.trim());
     
     // Check if debugfs is mounted
-    println!("\n2. Checking debugfs mount...");
+    println!("\n. Checking debugfs mount...");
     let mounts = fs::read_to_string("/proc/mounts").unwrap_or_default();
     if mounts.contains("debugfs") {
-        println!("   ✓ debugfs is mounted");
+        println!("   debugfs is mounted");
         
         // Find mount point
         for line in mounts.lines() {
@@ -32,17 +32,17 @@ fn main() {
             }
         }
     } else {
-        println!("   ✗ debugfs is NOT mounted");
+        println!("   debugfs is NOT mounted");
         println!("   Run: sudo mount -t debugfs none /sys/kernel/debug");
         return;
     }
     
     //maybe we can read tracing directory
-    println!("\n3. Checking tracing access...");
+    println!("\n Checking tracing access...");
     match fs::read_dir("/sys/kernel/debug/tracing") {
-        Ok(_) => println!("   ✓ Can access /sys/kernel/debug/tracing"),
+        Ok(_) => println!("   Can access /sys/kernel/debug/tracing"),
         Err(e) => {
-            println!("   ✗ Cannot access /sys/kernel/debug/tracing: {}", e);
+            println!("    Cannot access /sys/kernel/debug/tracing: {}", e);
             println!("   Run this program with sudo");
             return;
         }
@@ -55,14 +55,14 @@ fn main() {
     
     for func in &["udp_sendmsg", "tcp_sendmsg", "tcp_write_xmit"] {
         if funcs.contains(func) {
-            println!("   ✓ {} is available", func);
+            println!("    {} is available", func);
         } else {
-            println!("   ✗ {} NOT found", func);
+            println!("   {} NOT found", func);
         }
     }
     
     // 5. Check available tracepoints
-    println!("\n5. Checking tracepoints...");
+    println!("\n Checking tracepoints...");
     let check_tracepoint = |category: &str, name: &str| {
         let path = format!("/sys/kernel/debug/tracing/events/{}/{}", category, name);
         if fs::metadata(&path).is_ok() {
@@ -83,17 +83,17 @@ fn main() {
     match Command::new("bpftool").arg("version").output() {
         Ok(output) => {
             let version = String::from_utf8_lossy(&output.stdout);
-            println!("   ✓ bpftool found: {}", version.trim());
+            println!("    bpftool found: {}", version.trim());
         }
         Err(_) => {
-            println!("   ✗ bpftool not found");
+            println!("    bpftool not found");
             println!("   Install: sudo apt install linux-tools-generic");
         }
     }
     
-    // 7. Try manual kprobe creation
+   
     println!("Testing manual kprobe creation...");
-    println!("   Creating test kprobe for udp_sendmsg...");
+    println!("Creating test kprobe for udp_sendmsg...");
     
     // Clear any existing probe
     let _ = fs::write("/sys/kernel/debug/tracing/kprobe_events", "-:testprobe_udp\n");
@@ -101,7 +101,7 @@ fn main() {
     // Try to create a simple kprobe
     match fs::write("/sys/kernel/debug/tracing/kprobe_events", "p:testprobe_udp udp_sendmsg\n") {
         Ok(_) => {
-            println!("   ✓ Successfully created test kprobe");
+            println!("  Successfully created test kprobe");
             
             // Check if it appears
             let events = fs::read_to_string("/sys/kernel/debug/tracing/kprobe_events")

@@ -128,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
         interval.tick().await;
         let signals = collector.read_and_reset();
         
-        // Feed to your governor
+        // Feed to governor
         governor.update(signals);
     }
 }
